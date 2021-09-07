@@ -101,11 +101,6 @@ enc()
 		}
 	}
 
-	for (int i = 0; i < sec_cnt; ++i) {
-		printf("%d: s=%d, e=%d\n", i, start[i], (int)end[i]);
-	}
-	printf("end = %d\n", (int)max_end);
-
 	// encrypt message
 	// assume LE byte endian
 	randombytes_buf(body, sizeof body);
