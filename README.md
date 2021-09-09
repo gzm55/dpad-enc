@@ -29,12 +29,16 @@ Usage:
 
 ```
 $ ./dpad -e test.bin pwdAAA secretAAA pwdBBB secretBBB pwdCCC secretCCC
+
 $ ls test.bin
 test.bin
+
 $ ./dpad -d test.bin pwdCCC
 secretCCC
+
 $ ./dpad -d test.bin pwdAAA
 secretAAA
+
 $ ./dpad -d test.bin fake
 _Sf3}ڭuEo,hu>HZqD:ojO5?37CB?T6h@
 ```
