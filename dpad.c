@@ -30,8 +30,8 @@ usage() {
 #define MAX_SEC_CNT 32
 
 // prefix pag at most 2^10 - 1 bytes
-#define MAX_PREFIX_PAG_BITS 10
-#define PREFIX_PAD_MASK ((1ULL << MAX_PREFIX_PAG_BITS) - 1)
+#define MAX_PREFIX_PAD_BITS 8
+#define PREFIX_PAD_MASK ((1ULL << MAX_PREFIX_PAD_BITS) - 1)
 
 // large enough for enc/dec body
 #define MAX_BUFFER_SIZE (1024 * 1024)
@@ -42,7 +42,7 @@ size_t sec_cnt = 0;
 
 unsigned char encrypted_header[randombytes_SEEDBYTES];
 unsigned char body[MAX_BUFFER_SIZE];
-size_t body_size = 2 * (1 << MAX_PREFIX_PAG_BITS);
+size_t body_size = 2 * (1 << MAX_PREFIX_PAD_BITS);
 
 static const unsigned char HASHKEY[] = "dpad";
 
@@ -52,20 +52,21 @@ enc()
 	unsigned char pwd_mask[MAX_SEC_CNT][randombytes_SEEDBYTES];
 	unsigned char header[MAX_SEC_CNT][randombytes_SEEDBYTES];
 	int valid = 0;
-	unsigned short enc_start;
 	unsigned short start[MAX_SEC_CNT];
+	unsigned char hbyte[MAX_SEC_CNT];
 	size_t end[MAX_SEC_CNT], max_end = 0;
 
-	assert(randombytes_SEEDBYTES <= crypto_generichash_BYTES);
+	assert(randombytes_SEEDBYTES <= crypto_generichash_BYTES_MAX);
 
 	for (int i = 0; i < sec_cnt; ++i) {
-		unsigned char hash[crypto_generichash_BYTES];
+		unsigned char hash[crypto_generichash_BYTES_MAX];
+		assert(2 + sizeof header[i] <= sizeof hash);
 		crypto_generichash(hash, sizeof hash, (const unsigned char*)pwd[i], strlen(pwd[i]), HASHKEY, sizeof HASHKEY);
 		randombytes_buf_deterministic(pwd_mask[i], sizeof pwd_mask[i], hash);
+		hbyte[i] = hash[randombytes_SEEDBYTES];
 	}
 
 	// allocation
-	randombytes_buf(&enc_start, sizeof enc_start);
 	while (!valid) {
 		randombytes_buf(encrypted_header, sizeof(encrypted_header));
 
@@ -76,15 +77,10 @@ enc()
 				header[i][j] = encrypted_header[j] ^ pwd_mask[i][j];
 			}
 
-			randombytes_buf_deterministic(&start[i], sizeof start[i], header[i]);
-			start[i] ^= enc_start;
-			start[i] &= (unsigned short)PREFIX_PAD_MASK;
+			// assume LE byte endian
+			start[i] = (*(unsigned short *)header[i]) & (unsigned short)PREFIX_PAD_MASK;
+			header[i][0] ^= hbyte[i]; // reinforce entropy
 			end[i] = (size_t)start[i] + sizeof(unsigned short) + strlen(sec[i]);
-
-			if (body_size < end[i] || start[i] < 2) {
-				found_intersect = 1;
-				break;
-			}
 
 			for (int j = 0; j < i; ++j) {
 				if (! (end[j] <= (size_t)start[i] || end[i] <= (size_t)start[j]) ) {
@@ -102,10 +98,7 @@ enc()
 	}
 
 	// encrypt message
-	// assume LE byte endian
 	randombytes_buf(body, sizeof body);
-	body[0] = enc_start & 0xff;
-	body[1] = (enc_start >> 8) & 0xff;
 	for (int i = 0; i < sec_cnt; ++i) {
 		unsigned char mask[sizeof body];
 		const size_t l = end[i] - start[i] - sizeof(unsigned short);
@@ -126,24 +119,26 @@ dec()
 	unsigned char header[randombytes_SEEDBYTES];
 	unsigned short start, length;
 	unsigned char mask[sizeof body];
-	unsigned char hash[crypto_generichash_BYTES];
+	unsigned char hash[crypto_generichash_BYTES_MAX];
+	unsigned char hbyte;
 	unsigned char *secret;
 
-	assert(randombytes_SEEDBYTES <= crypto_generichash_BYTES);
+	assert(randombytes_SEEDBYTES <= crypto_generichash_BYTES_MAX);
 
 	// decrypt header
 	crypto_generichash(hash, sizeof hash, (const unsigned char*)pwd[0], strlen(pwd[0]), HASHKEY, sizeof HASHKEY);
+	hbyte = hash[randombytes_SEEDBYTES];
 	randombytes_buf_deterministic(header, sizeof(header), hash);
 	for (int i = 0; i < sizeof header; ++i) {
 		header[i] ^= encrypted_header[i];
 	}
+	start = (*(unsigned short *)header) & (unsigned short)PREFIX_PAD_MASK;
+	header[0] ^= hbyte;
 
 	randombytes_buf_deterministic(mask, body_size, header);
 	for (int i = 0; i < body_size; ++i) {
 		body[i] ^= mask[i];
 	}
-	start = *(const unsigned short*)body;
-	start &= PREFIX_PAD_MASK;
 	secret = body + start;
 	length = *(const unsigned short*)secret;
 	secret += 2;
