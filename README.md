@@ -49,12 +49,12 @@ _Sf3}ڭuEo,hu>HZqD:ojO5?37CB?T6h@
 RAW FILE FORMAT:
 | 32 bytes encrypted master entropy EM | encrypt body (default 2048 bytes) EB |
 
-
 PADDING BODY FORMAT:
-| 2 bytes LE prefix padding length P | P-2 bytes prefix random padding | 2 bytes LE secret length L | L bytes secrets | tail random paddings |
+| P (prefix padding length) bytes prefix random padding | 2 bytes LE secret length L | L bytes secrets | tail random paddings |
 ```
 
-1. Use `hash(user-password)` as the key to descrypt `EM` to `M`.
-2. Use `M` as the key to descrpyt `EB` to `B`
-3. read `B[0]` and `B[1]` as a LE `unsigned short`, which is the prefix padding length.
-3. after the prefix padding, decode a length-prefix binary as a 2 byte LE unsigned short followed by the real secret.
+1. Use first 32 bytes of `H = hash(user-password, salt)` as the key to decrypt `EM` to `ML`.
+2. read the prefix padding length `P` from first two bytes of `ML`, as LE endian order, `P = ML[0] || ML[1]`
+3. get final `M = (ML[0] xor H[32]) || (ML[1] xor H[33]) || ML[2:31]`
+4. Use `M` as the key to descrpyt `EB` to `B`
+5. after the prefix padding, decode a length-prefix binary as a 2 byte LE unsigned short followed by the real secret.
